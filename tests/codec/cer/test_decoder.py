@@ -38,6 +38,52 @@ class BooleanDecoderTestCase(BaseTestCase):
             pass
 
 
+class IntegerDecoderTestCase(BaseTestCase):
+    def testCanonicalEncoding(self):
+        for substrate, expected in (
+                (bytes((2, 1, 0)), 0),
+                (bytes((2, 1, 127)), 127),
+                (bytes((2, 2, 0, 128)), 128),
+                (bytes((2, 1, 128)), -128),
+                (bytes((2, 2, 255, 127)), -129),
+                (bytes((2, 1, 255)), -1)):
+            for asn1Spec in (None, univ.Integer()):
+                value, rest = decoder.decode(substrate, asn1Spec=asn1Spec)
+                assert value == expected
+                assert rest == b''
+
+    def testNonMinimalEncoding(self):
+        for substrate in (bytes((2, 2, 0, 1)),
+                          bytes((2, 3, 0, 0, 128)),
+                          bytes((2, 2, 255, 255)),
+                          bytes((2, 3, 255, 255, 128))):
+            for asn1Spec in (None, univ.Integer()):
+                try:
+                    decoder.decode(substrate, asn1Spec=asn1Spec)
+                except PyAsn1Error as exc:
+                    assert 'Non-canonical INTEGER' in str(exc)
+                else:
+                    assert 0, 'non-minimal INTEGER tolerated'
+
+    def testEmptyEncoding(self):
+        for asn1Spec in (None, univ.Integer()):
+            try:
+                decoder.decode(bytes((2, 0)), asn1Spec=asn1Spec)
+            except PyAsn1Error as exc:
+                assert 'Non-canonical empty INTEGER' in str(exc)
+            else:
+                assert 0, 'empty INTEGER tolerated'
+
+    def testNonMinimalEnumerated(self):
+        for asn1Spec in (None, univ.Enumerated()):
+            try:
+                decoder.decode(bytes((10, 2, 0, 1)), asn1Spec=asn1Spec)
+            except PyAsn1Error as exc:
+                assert 'Non-canonical INTEGER' in str(exc)
+            else:
+                assert 0, 'non-minimal ENUMERATED tolerated'
+
+
 class BitStringDecoderTestCase(BaseTestCase):
     def testShortMode(self):
         assert decoder.decode(

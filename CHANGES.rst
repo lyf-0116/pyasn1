@@ -17,6 +17,12 @@ Revision 0.7.0, released XX-XX-2026
   preserves component absence when inspected with ``instantiate=False``.
   Applications relying on ``encode()`` to populate defaulted components
   should explicitly instantiate or set those components before encoding.
+- Fixed CER and DER decoders to reject empty and non-minimal INTEGER and
+  ENUMERATED encodings, both with and without an ASN.1 schema. Such values
+  previously decoded but could not be re-encoded to the original bytes,
+  invalidating signatures and fingerprints over the original substrate. BER
+  remains permissive, so this deliberate strictness change may reject
+  non-conformant third-party data that CER/DER previously accepted.
 - Expanded SECURITY.md with the project's vulnerability scope: what
   qualifies for a private advisory and a CVE versus what is handled
   as an ordinary public bug report

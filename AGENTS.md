@@ -71,20 +71,21 @@ downstream callers depend on. Rationale in
 [ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 - **Editing BER edits DER.** DER imports CER imports BER, and each derived
-  codec copies the parent's `TAG_MAP`/`TYPE_MAP` *shallowly* at import: 22 of
+  codec copies the parent's `TAG_MAP`/`TYPE_MAP` *shallowly* at import: 20 of
   26 payload-decoder and 22 of 27 payload-encoder `TAG_MAP` instances are the
-  same objects in all three codecs, and the derived *decoder* `TYPE_MAP`s are
-  inherited wholesale. Editing a BER payload codec, or setting an attribute on
-  one of those instances, changes DER, which signature verification depends
-  on. Conversely, registering a new type in the BER source is enough; only
-  *runtime* mutation after import fails to propagate. Add to `cer/` or `der/`
-  only when that codec needs different behavior.
-- **CER/DER decoder strictness does not fire on the schema-driven path**,
-  because the fully inherited `TYPE_MAP` is consulted before `TAG_MAP`
-  whenever an `asn1Spec` is supplied. DER's `supportConstructedForm=False` and
-  CER's canonical Boolean check are inert there; only
-  `supportIndefLength=False` is unconditional. Test strictness changes both
-  with and without a schema.
+  same objects in all three codecs, and the derived *decoder* `TYPE_MAP`s
+  differ only in CER's strict integer entry. Editing a BER payload codec, or
+  setting an attribute on one of those instances, changes DER, which signature
+  verification depends on. Conversely, registering a new type in the BER
+  source is enough; only *runtime* mutation after import fails to propagate.
+  Add to `cer/` or `der/` only when that codec needs different behavior.
+- **Most CER/DER decoder strictness does not fire on the schema-driven path**,
+  because the inherited `TYPE_MAP` is consulted before `TAG_MAP` whenever an
+  `asn1Spec` is supplied. DER's `supportConstructedForm=False` and CER's
+  canonical Boolean check are inert there. INTEGER/ENUMERATED are the
+  exception: CER overrides the `TYPE_MAP` integer slot with its strict
+  `IntegerPayloadDecoder`, and DER inherits it. `supportIndefLength=False` is
+  unconditional. Test strictness changes both with and without a schema.
 - **Do not weaken the decoder limits.** `MAX_OID_ARC_CONTINUATION_OCTETS`,
   `MAX_TAG_OCTETS`, `MAX_NESTING_DEPTH` and `MAX_LENGTH_OCTETS` sit at the top
   of `pyasn1/codec/ber/decoder.py`; the unnamed `length > sys.maxsize` guard

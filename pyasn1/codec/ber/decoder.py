@@ -140,6 +140,7 @@ rawPayloadDecoder = RawPayloadDecoder()
 
 class IntegerPayloadDecoder(AbstractSimplePayloadDecoder):
     protoComponent = univ.Integer(0)
+    acceptNonCanonical = True
 
     def valueDecoder(self, substrate, asn1Spec,
                      tagSet=None, length=None, state=None,
@@ -153,6 +154,9 @@ class IntegerPayloadDecoder(AbstractSimplePayloadDecoder):
             if isinstance(chunk, SubstrateUnderrunError):
                 yield chunk
 
+        if not self.acceptNonCanonical:
+            self._verifyCanonical(chunk)
+
         if chunk:
             value = int.from_bytes(bytes(chunk), 'big', signed=True)
 
@@ -160,6 +164,23 @@ class IntegerPayloadDecoder(AbstractSimplePayloadDecoder):
             value = 0
 
         yield self._createComponent(asn1Spec, tagSet, value, **options)
+
+    @staticmethod
+    def _verifyCanonical(chunk):
+        if not chunk:
+            raise error.PyAsn1Error(
+                'Non-canonical empty INTEGER encoding'
+            )
+
+        if len(chunk) > 1:
+            firstOctet = chunk[0]
+            secondOctet = chunk[1]
+
+            if ((firstOctet == 0x00 and not secondOctet & 0x80) or
+                    (firstOctet == 0xff and secondOctet & 0x80)):
+                raise error.PyAsn1Error(
+                    'Non-canonical INTEGER encoding'
+                )
 
 
 class BooleanPayloadDecoder(IntegerPayloadDecoder):

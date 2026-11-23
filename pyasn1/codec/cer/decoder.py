@@ -48,6 +48,10 @@ class BooleanPayloadDecoder(decoder.AbstractSimplePayloadDecoder):
         yield self._createComponent(asn1Spec, tagSet, value, **options)
 
 
+class IntegerPayloadDecoder(decoder.IntegerPayloadDecoder):
+    acceptNonCanonical = False
+
+
 # TODO: prohibit non-canonical encoding
 BitStringPayloadDecoder = decoder.BitStringPayloadDecoder
 OctetStringPayloadDecoder = decoder.OctetStringPayloadDecoder
@@ -56,12 +60,15 @@ RealPayloadDecoder = decoder.RealPayloadDecoder
 TAG_MAP = decoder.TAG_MAP.copy()
 TAG_MAP.update(
     {univ.Boolean.tagSet: BooleanPayloadDecoder(),
+     univ.Integer.tagSet: IntegerPayloadDecoder(),
+     univ.Enumerated.tagSet: IntegerPayloadDecoder(),
      univ.BitString.tagSet: BitStringPayloadDecoder(),
      univ.OctetString.tagSet: OctetStringPayloadDecoder(),
      univ.Real.tagSet: RealPayloadDecoder()}
 )
 
 TYPE_MAP = decoder.TYPE_MAP.copy()
+TYPE_MAP[univ.Integer.typeId] = TAG_MAP[univ.Integer.tagSet]
 
 # Put in non-ambiguous types for faster codec lookup
 for typeDecoder in TAG_MAP.values():
