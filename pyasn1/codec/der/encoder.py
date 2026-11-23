@@ -13,7 +13,38 @@ from pyasn1.type import univ
 __all__ = ['Encoder', 'encode']
 
 
-class SetEncoder(encoder.SetEncoder):
+class _DefiniteEmptyContainerEncoder(object):
+    # DER has no "empty constructed value means absent" rule (X.690 10.1):
+    # a present component always serializes, even when empty. The CER
+    # `ifNotEmpty` option is consumed by AbstractItemEncoder.encode *after*
+    # encodeValue returns, so it has to be stripped at the encode boundary;
+    # merely flipping omitEmptyOptionals cannot undo a flag an outer CER
+    # container already placed in the options dict.
+    def encode(self, value, asn1Spec=None, encodeFun=None, **options):
+        options.pop('ifNotEmpty', None)
+        return super(_DefiniteEmptyContainerEncoder, self).encode(
+            value, asn1Spec, encodeFun, **options)
+
+
+class SequenceEncoder(_DefiniteEmptyContainerEncoder, encoder.SequenceEncoder):
+    # DER must encode every present component, including an empty
+    # constructed OPTIONAL, otherwise the same value has two distinct
+    # encodings (X.690 10.1), breaking signature stability.
+    omitEmptyOptionals = False
+
+
+class SequenceOfEncoder(_DefiniteEmptyContainerEncoder,
+                        encoder.SequenceOfEncoder):
+    pass
+
+
+class SetOfEncoder(_DefiniteEmptyContainerEncoder, encoder.SetOfEncoder):
+    pass
+
+
+class SetEncoder(_DefiniteEmptyContainerEncoder, encoder.SetEncoder):
+    omitEmptyOptionals = False
+
     @staticmethod
     def _componentSortKey(componentAndType):
         """Sort SET components by tag
@@ -48,6 +79,9 @@ class SetEncoder(encoder.SetEncoder):
 TAG_MAP = encoder.TAG_MAP.copy()
 
 TAG_MAP.update({
+    # Sequence & Set have same tags as SequenceOf & SetOf
+    univ.SequenceOf.tagSet: SequenceOfEncoder(),
+    univ.SetOf.tagSet: SetOfEncoder(),
     # Set & SetOf have same tags
     univ.Set.tagSet: SetEncoder()
 })
@@ -55,6 +89,9 @@ TAG_MAP.update({
 TYPE_MAP = encoder.TYPE_MAP.copy()
 
 TYPE_MAP.update({
+    univ.Sequence.typeId: SequenceEncoder(),
+    univ.SequenceOf.typeId: SequenceOfEncoder(),
+    univ.SetOf.typeId: SetOfEncoder(),
     # Set & SetOf have same tags
     univ.Set.typeId: SetEncoder()
 })

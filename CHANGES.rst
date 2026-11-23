@@ -1,6 +1,14 @@
 Revision 0.7.0, released XX-XX-2026
 ---------------------------------------
 
+- Fixed DER encoder dropping present but empty OPTIONAL constructed
+  components (empty SEQUENCE, SET, SEQUENCE OF and SET OF). DER inherited
+  CER's `omitEmptyOptionals` behavior through the shared encoder tables, so
+  decoding such a component and re-encoding produced a shorter, different
+  byte string, invalidating signatures and fingerprints. DER now uses its own
+  encoder instances in both `TAG_MAP` and `TYPE_MAP` that never omit a
+  present empty container, while CER keeps its canonicalization rule and BER
+  is unchanged
 - Fixed OverflowError from BER/CER/DER length values that fit in the
   supported 8-octet length field but exceed the platform maximum readable
   size. Such oversized definite lengths are now rejected with PyAsn1Error.

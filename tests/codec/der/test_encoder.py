@@ -14,6 +14,7 @@ from pyasn1.type import tag
 from pyasn1.type import namedtype
 from pyasn1.type import opentype
 from pyasn1.type import univ
+from pyasn1.codec.der import decoder
 from pyasn1.codec.der import encoder
 
 
@@ -462,6 +463,15 @@ class NestedOptionalSequenceEncoderTestCase(BaseTestCase):
         s = self.__initOptional()
         assert encoder.encode(s) == bytes((48, 0))
 
+    def testDefModeInitializedEmptyOptionalIsEncoded(self):
+        # a present but empty OPTIONAL SEQUENCE must be serialized: DER has
+        # no rule that equates an empty constructed value with absence
+        substrate = bytes((48, 2, 48, 0))
+        decoded, rest = decoder.decode(substrate, asn1Spec=self.s1)
+
+        assert rest == b''
+        assert encoder.encode(decoded) == substrate
+
     def testDefModeDefaultWithDefaultAndOptional(self):
         s = self.__initDefaultWithDefaultAndOptional()
         assert encoder.encode(s) == bytes((48, 11, 48, 9, 4, 4, 116, 101, 115, 116, 2, 1, 123))
@@ -578,6 +588,15 @@ class NestedOptionalChoiceEncoderTestCase(BaseTestCase):
         s = self.__initOptional()
         assert encoder.encode(s) == bytes((48, 0))
 
+    def testDefModeInitializedEmptyOptionalIsEncoded(self):
+        # the empty SEQUENCE alternative of an OPTIONAL CHOICE is present and
+        # must survive DER encoding rather than being collapsed to absence
+        substrate = bytes((48, 2, 48, 0))
+        decoded, rest = decoder.decode(substrate, asn1Spec=self.s)
+
+        assert rest == b''
+        assert encoder.encode(decoded) == substrate
+
 
 class NestedOptionalSequenceOfEncoderTestCase(BaseTestCase):
     def setUp(self):
@@ -611,6 +630,14 @@ class NestedOptionalSequenceOfEncoderTestCase(BaseTestCase):
     def testDefModeOptional(self):
         s = self.__initOptional()
         assert encoder.encode(s) == bytes((48, 0))
+
+    def testDefModeInitializedEmptyOptionalIsEncoded(self):
+        # a present but empty OPTIONAL SEQUENCE OF still occupies its bytes
+        substrate = bytes((48, 2, 48, 0))
+        decoded, rest = decoder.decode(substrate, asn1Spec=self.s)
+
+        assert rest == b''
+        assert encoder.encode(decoded) == substrate
 
 
 class EmptyInnerFieldOfSequenceEncoderTestCase(BaseTestCase):
@@ -678,6 +705,60 @@ class EmptyInnerFieldOfSequenceEncoderTestCase(BaseTestCase):
         self.s.clear()
         self.s[0] = ''
         assert encoder.encode(self.s) == bytes((48, 0))
+
+    def testInitializedEmptyOptionalSequenceIsEncoded(self):
+        schema = univ.Sequence(
+            componentType=namedtype.NamedTypes(
+                namedtype.OptionalNamedType('inner', univ.Sequence())
+            )
+        )
+
+        substrate = bytes((48, 2, 48, 0))
+        decoded, rest = decoder.decode(substrate, asn1Spec=schema)
+
+        assert rest == b''
+        assert encoder.encode(decoded) == substrate
+
+    def testInitializedEmptyOptionalSetIsEncoded(self):
+        schema = univ.Sequence(
+            componentType=namedtype.NamedTypes(
+                namedtype.OptionalNamedType('inner', univ.Set())
+            )
+        )
+
+        substrate = bytes((48, 2, 49, 0))
+        decoded, rest = decoder.decode(substrate, asn1Spec=schema)
+
+        assert rest == b''
+        assert encoder.encode(decoded) == substrate
+
+    def testInitializedEmptyOptionalSequenceOfIsEncoded(self):
+        schema = univ.Sequence(
+            componentType=namedtype.NamedTypes(
+                namedtype.OptionalNamedType(
+                    'inner', univ.SequenceOf(componentType=univ.Integer()))
+            )
+        )
+
+        substrate = bytes((48, 2, 48, 0))
+        decoded, rest = decoder.decode(substrate, asn1Spec=schema)
+
+        assert rest == b''
+        assert encoder.encode(decoded) == substrate
+
+    def testInitializedEmptyOptionalSetOfIsEncoded(self):
+        schema = univ.Sequence(
+            componentType=namedtype.NamedTypes(
+                namedtype.OptionalNamedType(
+                    'inner', univ.SetOf(componentType=univ.Integer()))
+            )
+        )
+
+        substrate = bytes((48, 2, 49, 0))
+        decoded, rest = decoder.decode(substrate, asn1Spec=schema)
+
+        assert rest == b''
+        assert encoder.encode(decoded) == substrate
 
 
 class ClassConstructorTestCase(BaseTestCase):

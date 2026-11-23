@@ -767,7 +767,7 @@ flowchart LR
     subgraph DER["DER - pyasn1/codec/der"]
         direction TB
         DEM["encoder TAG_MAP + TYPE_MAP<br/>copy of CER plus update"]
-        DEO["REAL OVERRIDE - one class only<br/>SetEncoder DYNAMIC choice key<br/>resolves the chosen alternative"]
+        DEO["REAL OVERRIDES<br/>SetEncoder DYNAMIC choice key<br/>resolves the chosen alternative<br/>Sequence/Set/SequenceOf/SetOf<br/>never omit a present empty container"]
         DSE["SingleItemEncoder<br/>fixedDefLengthMode True<br/>fixedChunkSize 0"]
         DDM["decoder TAG_MAP + TYPE_MAP<br/>copy plus backfill that adds nothing"]
         DDO["REAL OVERRIDES<br/>BitString supportConstructedForm False<br/>OctetString supportConstructedForm False"]
@@ -779,7 +779,7 @@ flowchart LR
     end
 
     BEM -.->|"shallow copy - 22 of 28 tag entries<br/>and 21 of 29 type entries are the SAME objects"| CEM
-    CEM -.->|"shallow copy - 27 of 28 tag entries<br/>and 28 of 29 type entries are the SAME objects"| DEM
+    CEM -.->|"shallow copy - 26 of 28 tag entries<br/>and 25 of 29 type entries are the SAME objects"| DEM
     BDM -.->|"shallow copy - 22 of 26 tag entries<br/>and ALL 28 type entries are the SAME objects"| CDM
     CDM -.->|"shallow copy - 23 of 26 tag entries<br/>and ALL 28 type entries are the SAME objects"| DDM
 
@@ -795,7 +795,7 @@ flowchart LR
 
 The dotted copy edges carry the measured counts. The CER encoder keeps 22 of
 28 tag entries and 21 of 29 type entries as the same objects as BER's; the DER
-encoder keeps 27 of 28 and 28 of 29 relative to CER; on the decoder side the
+encoder keeps 26 of 28 and 25 of 29 relative to CER; on the decoder side the
 copies keep 22 of 26 and then 23 of 26 tag entries, with all 28 type entries
 identical at both steps. The derived decoder `TYPE_MAP`s are therefore
 100 percent inherited, so CER and DER strictness applies only on the schemaless
@@ -826,23 +826,25 @@ Measured by identity comparison:
 
 | map | size | objects identical to BER | genuinely distinct |
 | --- | --- | --- | --- |
-| `der.encoder.TAG_MAP` | 28 | 22 | 6 |
+| `der.encoder.TAG_MAP` | 28 | 21 | 7 |
 | `der.encoder.TYPE_MAP` | 29 | 21 | 8 |
 | `der.decoder.TAG_MAP` | 26 | 22 | 4 |
 | `der.decoder.TYPE_MAP` | 28 | 28 | 0 |
 
 The distinct entries are few. On the encoder side they are Boolean, Real, the
 two time types, Set/SetOf, Sequence/SequenceOf (`TYPE_MAP` only: CER's
-`omitEmptyOptionals` and `ifNotEmpty` rewrites in `cer/encoder.py`) and the
-stray integer key; on the decoder side,
+`omitEmptyOptionals` and `ifNotEmpty` rewrites in `cer/encoder.py`), the
+stray integer key, and DER's own empty-container-preserving Sequence/Set/
+SequenceOf/SetOf encoders in both maps (see [DER keeps empty OPTIONAL
+components](#der-keeps-empty-optional-components)); on the decoder side,
 Boolean (from CER), BitString and OctetString (the two
 `supportConstructedForm = False` subclasses in `der/decoder.py`), plus a
 re-instantiated but behaviorally identical `RealPayloadDecoder`: the
 `RealPayloadDecoder = decoder.RealPayloadDecoder` alias in `der/decoder.py`,
 whose `# TODO: prohibit non-canonical encoding` comment marks it as a
 placeholder for a stricter decoder nobody wrote. Between CER and DER the
-coupling is tighter still: DER's entire encoder-side contribution is one class
-plus two class attributes.
+coupling is still tight: DER's encoder-side contribution is the dynamic SET
+sort plus the empty-container-preserving container encoders.
 
 Editing a BER payload codec thus edits DER, and there is no indirection
 to absorb the change. An edit to `IntegerEncoder.encodeValue` in
@@ -981,7 +983,7 @@ right-padded with `\x00`. `SetEncoder` sorts SET components with a static
 not a shortcut: X.690 9.3 orders an untagged CHOICE by the smallest tag among
 its (nested) alternatives, which is exactly this sort.
 
-DER's encoder contribution is a single class. `SetEncoder` replaces CER's
+DER's encoder contribution starts with one class. `SetEncoder` replaces CER's
 static sort key with a dynamic `_componentSortKey` that resolves the actual
 chosen alternative, the ordering X.690 10.3 (read with X.680 8.6) requires of
 DER. The difference is observable (structure from
@@ -991,6 +993,11 @@ OctetString/Boolean): with the OctetString alternative chosen, DER emits
 INTEGER first while CER emits the CHOICE first, since CER keys on the smallest
 possible tag (Boolean's 1) regardless of the value present. Both outputs are
 what X.690 requires, one per rule set.
+
+The rest of DER's encoder contribution is four container encoder classes,
+one per constructed type, that keep a present but empty OPTIONAL component;
+[DER keeps empty OPTIONAL components](#der-keeps-empty-optional-components)
+explains why CER's omission rule cannot be inherited.
 
 The two sort keys look like duplication but must not be collapsed in either
 direction. Replacing DER's dynamic key with CER's static one fails the
@@ -1059,7 +1066,8 @@ mutated in place, and the mutation propagates downward into every later
 2. `SetEncoder.encodeValue` in `cer/encoder.py` does the same, but iterating
    in sorted order, so the flag in effect for a component is determined by tag
    order; a component with no `namedType` inherits the previous component's
-   flag.
+   flag. It now runs the update only while `omitEmptyOptionals` is on, matching
+   BER's `SequenceEncoder`, so DER can switch the propagation off per class.
 3. `TimeEncoderMixIn.encodeValue` in `cer/encoder.py` runs
    `options.update(maxChunkSize=1000)` unconditionally, even under DER where
    `fixedChunkSize = 0` just set unlimited; the mutation is inert only
@@ -1080,6 +1088,50 @@ surface: `ber.encode(seq, ifNotEmpty=True)` on a SEQUENCE that encodes to
 empty returns `b''` outright. `NestedOptionalSequenceEncoderTestCase` in
 `tests/codec/cer/test_encoder.py` pins the nesting behavior across seven
 optional/defaulted arrangements.
+
+### DER keeps empty OPTIONAL components
+
+CER's `SequenceEncoder` sets `omitEmptyOptionals = True`, and its
+`SetEncoder` historically propagated `ifNotEmpty` unconditionally; under CER
+an empty constructed OPTIONAL (an empty SEQUENCE, SET, SEQUENCE OF or SET OF)
+therefore serializes as nothing at all. DER's tables are shallow copies of
+CER's with only the SET entry overwritten, so before this fix DER inherited
+the same CER encoder instances and the omission rule leaked across: a byte
+stream containing `30 02 30 00` (outer SEQUENCE wrapping a present empty
+inner SEQUENCE) decoded and re-encoded under DER came back as just `30 00`,
+two bytes shorter, which changes the signed content and breaks fingerprint
+and interop checks. Keeping the rule ("empty constructed means absent") is
+not an option for DER because X.690 10.1 demands one unique encoding: the
+same abstract value would then have two legal byte strings.
+
+The fix lives entirely in `pyasn1/codec/der/encoder.py` plus the one-line
+guard in CER's `SetEncoder`. DER defines four small classes,
+`SequenceEncoder`, `SetEncoder`, `SequenceOfEncoder` and `SetOfEncoder`, all
+mixed with `_DefiniteEmptyContainerEncoder`, whose `encode` pops
+`ifNotEmpty` from the options before delegating. The pop has to happen at the
+`encode` boundary, not inside `encodeValue`: the flag is consumed afterward
+by `AbstractItemEncoder.encode` in `ber/encoder.py`, and an outer CER-style
+container may already have placed it in the dict, so merely setting
+`omitEmptyOptionals = False` cannot retract a flag that arrived from above.
+`SequenceEncoder` and `SetEncoder` also flip the attribute to `False`, which
+stops them re-adding the flag for their own children; CER's `SetEncoder`
+gating the update on `omitEmptyOptionals` is what makes that attribute
+effective for SET.
+
+Both dispatch tables must be replaced. `SingleItemEncoder.__call__` in
+`ber/encoder.py` consults `TYPE_MAP` by `typeId` first and only falls back to
+`TAG_MAP` on a `KeyError`, so the schema-driven path (an `asn1Spec` is
+supplied, which is how decoded certificate structures re-encode) keeps
+hitting whatever `TYPE_MAP` holds. Swapping only `TAG_MAP` leaves the old
+CER instance reachable through `TYPE_MAP` and the bug silently survives;
+`der/encoder.py` therefore registers all four classes in both maps. CER is
+unchanged — its empty-optional omission is part of its canonicalization — and
+BER never set the flag, so it is unchanged as well. The round-trip and
+empty-container cases are pinned by `NestedOptionalSequenceEncoderTestCase`,
+`NestedOptionalChoiceEncoderTestCase`,
+`NestedOptionalSequenceOfEncoderTestCase` and
+`EmptyInnerFieldOfSequenceEncoderTestCase` in
+`tests/codec/der/test_encoder.py`.
 
 ### Encoding as a pure function
 

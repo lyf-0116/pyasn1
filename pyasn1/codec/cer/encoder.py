@@ -142,6 +142,8 @@ class SequenceOfEncoder(encoder.SequenceOfEncoder):
 
 
 class SetEncoder(encoder.SequenceEncoder):
+    omitEmptyOptionals = True
+
     @staticmethod
     def _componentSortKey(componentAndType):
         """Sort SET components by tag
@@ -224,7 +226,7 @@ class SetEncoder(encoder.SequenceEncoder):
         for comp, compType in sorted(comps, key=self._componentSortKey):
             namedType = compsMap[id(comp)]
 
-            if namedType:
+            if namedType and self.omitEmptyOptionals:
                 options.update(ifNotEmpty=namedType.isOptional)
 
             chunk = encodeFun(comp, compType, **options)
