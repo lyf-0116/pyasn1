@@ -17,6 +17,13 @@ Revision 0.7.0, released XX-XX-2026
   preserves component absence when inspected with ``instantiate=False``.
   Applications relying on ``encode()`` to populate defaulted components
   should explicitly instantiate or set those components before encoding.
+- Fixed CER (and BER with explicit ``maxChunkSize``) encoding of character
+  strings whose byte length exceeds the chunk limit while their character
+  count does not, e.g. a 334-character CJK UTF8String spanning 1002 octets.
+  Chunking in ``OctetStringEncoder`` now measures both the limit and the
+  slices in octets and keeps each fragment's own string tag instead of
+  retagging it as OCTET STRING, so such values encode into conforming
+  constructed fragments rather than recursing until ``RecursionError``.
 - Expanded SECURITY.md with the project's vulnerability scope: what
   qualifies for a private advisory and a CVE versus what is handled
   as an ordinary public bug report

@@ -1745,6 +1745,7 @@ each guard.
 | Inconsistency guard | `SequenceEncoder.encodeValue` (`ber/encoder.py`), `SetEncoder.encodeValue` (`cer/encoder.py`), `SetEncoder.encode` (`native/encoder.py`) | Rejects constrained containers violating their `subtypeSpec`; a narrow check, see the caveats below | `66afc89`, 2019 (raise reworked into `PyAsn1Error` by `7a599a1`, 2024) |
 | Encoder purity | the `getComponentByPosition(idx, instantiate=False)` component loops in the same three methods | `encode()` materializing absent DEFAULT/OPTIONAL components in the caller's object ([Encoding as a pure function](#encoding-as-a-pure-function)) | `ca9ec2e` / PR #112, 0.7.0-dev |
 | Purity regression test | `tests/codec/test_encoder_no_mutation.py` | Pins the purity guard across all five encoder entry points | 0.7.0-dev |
+| Octet-measured string chunking | the chunking loop in `OctetStringEncoder.encodeValue` (`ber/encoder.py`), shared by every character-string encoder and inherited by CER/DER | Keeps each constructed string fragment at or below `maxChunkSize` *octets*; character-count slicing never shrinks a multi-byte value enough to stop recursing ([String chunking is measured in octets](#string-chunking-is-measured-in-octets)) | 0.7.0-dev |
 
 The `isInconsistent` guard returns `False` immediately when the object has no
 `subtypeSpec` (`SequenceAndSetBase.isInconsistent`, `univ.py`), which is the
@@ -1757,6 +1758,67 @@ by over a decade. Anyone touching `RealEncoder._chooseEncBase` or
 `_chooseEncBase` and DER inherits the CER instance, so a base-class change
 reaches all three codecs. Reverting the purity fix restores an input-mutation
 bug that survived unnoticed from 0.5.x to 0.6.4.
+
+### String chunking is measured in octets
+
+X.690 9.2 caps a CER primitive string fragment at 1000 content octets; CER's
+`SingleItemEncoder.fixedChunkSize = 1000` ([What each dialect
+changes](#what-each-dialect-changes)) feeds that limit into the shared
+`OctetStringEncoder.encodeValue` in `ber/encoder.py`, which every character
+string type (UTF8String, BMPString, UniversalString and the ISO-8859-1
+family) dispatches to through the BER `TAG_MAP`/`TYPE_MAP`. DER sets
+`fixedChunkSize = 0`, so it never chunks, and BER only chunks when the caller
+passes `maxChunkSize` explicitly.
+
+The limit and the slicing must use the same unit. The length decision reads
+`len(substrate)`, where `substrate` is the encoded octet string; an earlier
+form of the loop advanced by `value[pos:pos + maxChunkSize]` on the value
+itself. For an `OctetString` the two coincide, but a character string counts
+code points there while each code point occupies several octets under its
+declared `encoding` (three per CJK character in UTF-8, two in BMPString,
+four in UniversalString). A 334-character CJK UTF8String is 1002 octets:
+over the limit, so chunking starts, but no 1000-character slice can make the
+recursive call see a value at or under 1000 octets, and the encoder called
+itself until `RecursionError`. The same length of ASCII stayed under one
+character per octet and encoded fine, which is why the defect only appeared
+with multi-byte encodings.
+
+The post-fix loop keeps the two measurements aligned by construction. A
+bytes value (the bare-`bytes` plus `asn1Spec` path) is sliced directly in
+octet ranges. A character value is walked one code point at a time, adding
+that code point's encoded width (`str.encode(encoding)` for a bare string,
+`asOctets()` on a pyasn1 character object) until the next character would
+cross `maxChunkSize`; slices then carry whole characters only and never split
+a multi-byte sequence. A single character wider than the limit forms a chunk
+by itself, encoded with a per-call `maxChunkSize=0` so the recursive entry
+cannot re-enter the chunking branch. That fallback is unreachable under CER,
+whose widest character is four octets against a 1000-octet limit; it exists
+for callers passing a tiny `maxChunkSize` to BER.
+
+Two adjacent details are load-bearing. First, the inner fragments must keep
+the string's own tag. The tag-stripping step exists to drop explicit tagging
+from the outer value, but `TagSet.baseTag` is UNIVERSAL 4 for the whole
+OctetString family — the actual UTF8String/BMPString tag is the first
+superTag — so rebuilding the spec from `baseTag` unconditionally retagged
+every fragment as an OCTET STRING and produced an encoding the decoder
+rejects. The loop now strips a tag only when the tag set holds more than the
+base tag, slicing `tagSet[:1]`, which leaves ordinary character strings
+untouched and still removes explicit tags. Second, every fragment is a slice
+of the value or of a bytes object, so the recursive encode never mutates the
+caller's input, matching the purity contract in [Encoding as a pure
+function](#encoding-as-a-pure-function).
+
+The regression cases live beside the existing long-string cases:
+`CharacterStringEncoderTestCase` in `tests/codec/cer/test_encoder.py` pins
+the CER round-trip, the schema-driven path and the 1000-octet fragment cap
+on a 334-character CJK value; `UTF8StringEncoderTestCase`,
+`UTF8StringEncoderWithSchemaTestCase` and
+`ExpTaggedUTF8StringEncoderTestCase` in `tests/codec/ber/test_encoder.py`
+cover BER chunking, including a `maxChunkSize` below one character's width.
+Treating the limit as a character count would make these tests pass while
+emitting fragments wider than 1000 octets, which a strict X.690 parser
+rejects and which changes the signed bytes and therefore the signature and
+fingerprint over the structure.
 
 ## Compatibility surface: looks dead, is not
 

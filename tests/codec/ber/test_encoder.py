@@ -15,6 +15,7 @@ from pyasn1.type import opentype
 from pyasn1.type import univ
 from pyasn1.type import char
 from pyasn1.codec.ber import encoder
+from pyasn1.codec.ber import decoder
 from pyasn1.error import PyAsn1Error
 
 
@@ -200,6 +201,15 @@ class OctetStringEncoderWithSchemaTestCase(BaseTestCase):
             self.o, asn1Spec=self.s, defMode=False, maxChunkSize=4
         ) == bytes((36, 128, 4, 4, 81, 117, 105, 99, 4, 4, 107, 32, 98, 114, 4, 4, 111, 119, 110,
                         32, 4, 3, 102,  111, 120, 0, 0))
+
+    def testDefModeChunkedBytesValue(self):
+        substrate = encoder.encode(
+            b'Q' * 1001, asn1Spec=self.s, maxChunkSize=1000)
+
+        decoded, rest = decoder.decode(substrate, asn1Spec=self.s)
+
+        assert decoded == univ.OctetString(b'Q' * 1001)
+        assert rest == b''
 
 
 class ExpTaggedOctetStringEncoderTestCase(BaseTestCase):
@@ -509,12 +519,58 @@ class UTF8StringEncoderTestCase(BaseTestCase):
         assert encoder.encode(char.UTF8String('abc')) == bytes(
             (12, 3, 97, 98, 99)), 'Incorrect encoding'
 
+    def testChunkedMultibyte(self):
+        value = char.UTF8String('\u6c49' * 334)
+
+        substrate = encoder.encode(value, maxChunkSize=1000)
+
+        decoded, rest = decoder.decode(substrate)
+
+        assert decoded == value
+        assert rest == b''
+
+    def testChunkedMultibyteSmallerThanCharWidth(self):
+        value = char.UTF8String('\u6c49' * 3)
+
+        substrate = encoder.encode(value, maxChunkSize=2)
+
+        decoded, rest = decoder.decode(substrate)
+
+        assert decoded == value
+        assert rest == b''
+
 
 class UTF8StringEncoderWithSchemaTestCase(BaseTestCase):
     def testEncoding(self):
         assert encoder.encode(
             'abc', asn1Spec=char.UTF8String()
         ) == bytes((12, 3, 97, 98, 99)), 'Incorrect encoding'
+
+    def testChunkedMultibyte(self):
+        substrate = encoder.encode(
+            '\u6c49' * 334, asn1Spec=char.UTF8String(), maxChunkSize=1000)
+
+        decoded, rest = decoder.decode(
+            substrate, asn1Spec=char.UTF8String())
+
+        assert decoded == char.UTF8String('\u6c49' * 334)
+        assert rest == b''
+
+
+class ExpTaggedUTF8StringEncoderTestCase(BaseTestCase):
+    def setUp(self):
+        BaseTestCase.setUp(self)
+        self.value = char.UTF8String('\u6c49' * 334).subtype(
+            explicitTag=tag.Tag(tag.tagClassContext,
+                                tag.tagFormatConstructed, 3))
+
+    def testChunkedMultibyte(self):
+        substrate = encoder.encode(self.value, maxChunkSize=1000)
+
+        decoded, rest = decoder.decode(substrate)
+
+        assert decoded == self.value
+        assert rest == b''
 
 
 class SequenceOfEncoderTestCase(BaseTestCase):

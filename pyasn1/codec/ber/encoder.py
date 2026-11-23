@@ -248,41 +248,60 @@ class OctetStringEncoder(AbstractItemEncoder):
         # strip off explicit tags for inner chunks
 
         if asn1Spec is None:
-            baseTag = value.tagSet.baseTag
-
-            # strip off explicit tags
-            if baseTag:
-                tagSet = tag.TagSet(baseTag, baseTag)
-
-            else:
-                tagSet = tag.TagSet()
-
-            asn1Spec = value.clone(tagSet=tagSet)
+            taggedValue = value
 
         elif not isinstance(value, bytes):
-            baseTag = asn1Spec.tagSet.baseTag
+            taggedValue = asn1Spec
 
-            # strip off explicit tags
-            if baseTag:
-                tagSet = tag.TagSet(baseTag, baseTag)
+        else:
+            taggedValue = None
 
-            else:
-                tagSet = tag.TagSet()
-
-            asn1Spec = asn1Spec.clone(tagSet=tagSet)
+        if taggedValue is not None and len(taggedValue.tagSet) > 1:
+            tagSet = taggedValue.tagSet[:1]
+            asn1Spec = taggedValue.clone(tagSet=tagSet)
 
         pos = 0
-        substrate = b''
+        constructedSubstrate = b''
 
         while True:
-            chunk = value[pos:pos + maxChunkSize]
+            chunkOptions = options
+
+            if isinstance(value, bytes):
+                chunk = value[pos:pos + maxChunkSize]
+
+            else:
+                stop = pos
+                chunkOctetLength = 0
+
+                while stop < len(value):
+                    if isinstance(value, str):
+                        codec = (asn1Spec.encoding
+                                 if asn1Spec is not None else value.encoding)
+                        charOctetLength = len(
+                            value[stop:stop + 1].encode(codec))
+                    else:
+                        charOctetLength = len(value[stop:stop + 1].asOctets())
+
+                    if chunkOctetLength + charOctetLength > maxChunkSize:
+                        break
+
+                    chunkOctetLength += charOctetLength
+                    stop += 1
+
+                if stop == pos:
+                    stop += 1
+                    chunkOptions = dict(options, maxChunkSize=0)
+
+                chunk = value[pos:stop]
+
             if not chunk:
                 break
 
-            substrate += encodeFun(chunk, asn1Spec, **options)
-            pos += maxChunkSize
+            constructedSubstrate += encodeFun(
+                chunk, asn1Spec, **chunkOptions)
+            pos += len(chunk)
 
-        return substrate, True, True
+        return constructedSubstrate, True, True
 
 
 class NullEncoder(AbstractItemEncoder):

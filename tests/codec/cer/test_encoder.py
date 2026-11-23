@@ -13,8 +13,10 @@ from pyasn1.type import tag
 from pyasn1.type import namedtype
 from pyasn1.type import opentype
 from pyasn1.type import univ
+from pyasn1.type import char
 from pyasn1.type import useful
 from pyasn1.codec.cer import encoder
+from pyasn1.codec.cer import decoder
 from pyasn1.error import PyAsn1Error
 
 
@@ -46,6 +48,53 @@ class OctetStringEncoderTestCase(BaseTestCase):
         assert encoder.encode(
             univ.OctetString('Q' * 1001)
         ) == bytes((36, 128, 4, 130, 3, 232) + (81,) * 1000 + (4, 1, 81, 0, 0))
+
+
+class CharacterStringEncoderTestCase(BaseTestCase):
+    def testChunkedMultibyte(self):
+        value = char.UTF8String('\u6c49' * 334)
+
+        assert len(value) == 334
+        assert len(value.asOctets()) == 1002
+
+        substrate = encoder.encode(value)
+
+        decoded, rest = decoder.decode(substrate)
+
+        assert decoded == value
+        assert rest == b''
+
+    def testChunkedMultibyteWithSchema(self):
+        value = '\u6c49' * 334
+
+        substrate = encoder.encode(value, asn1Spec=char.UTF8String())
+
+        decoded, rest = decoder.decode(
+            substrate, asn1Spec=char.UTF8String())
+
+        assert decoded == char.UTF8String(value)
+        assert rest == b''
+
+    def testChunksRespectOctetLimit(self):
+        substrate = encoder.encode(char.UTF8String('\u6c49' * 335))
+
+        index = 0
+
+        while index < len(substrate):
+            chunkTag = substrate[index]
+            index += 1
+            chunkLength = substrate[index]
+
+            if chunkLength & 0x80:
+                lengthOctets = chunkLength & 0x7f
+                chunkLength = int.from_bytes(
+                    substrate[index:index + lengthOctets], 'big')
+                index += lengthOctets
+
+            if chunkTag == 12:
+                assert chunkLength <= 1000
+
+            index += chunkLength
 
 
 class GeneralizedTimeEncoderTestCase(BaseTestCase):
