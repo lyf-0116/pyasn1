@@ -1,6 +1,16 @@
 Revision 0.7.0, released XX-XX-2026
 ---------------------------------------
 
+- Unified constraint verification at the common BER/CER/DER decoder exit.
+  ``SingleItemDecoder.__call__`` now checks ``isInconsistent`` on every
+  completed ASN.1 item, covering top-level values, optional SEQUENCE/SET
+  components, CHOICE alternatives and container-level ``subtypeSpec``
+  constraints. ``SimpleAsn1Type.isInconsistent`` exposes the same hook for
+  scalars, and an ASN.1 class passed as ``asn1Spec`` is normalized to an
+  instance instead of taking the unbound ``clone(value)`` path and returning a
+  bare Python value. Scalar range and size constraints already failed during
+  cloning/construction; container constraints that were previously accepted by
+  decoding now raise ``PyAsn1Error``.
 - Fixed OverflowError from BER/CER/DER length values that fit in the
   supported 8-octet length field but exceed the platform maximum readable
   size. Such oversized definite lengths are now rejected with PyAsn1Error.

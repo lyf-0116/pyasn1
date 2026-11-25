@@ -344,6 +344,20 @@ class SimpleAsn1Type(Asn1Type):
         """
         return self._value is not noValue
 
+    @property
+    def isInconsistent(self):
+        """Run subtype constraints against a decoded scalar value."""
+        if self._value is noValue or not self.subtypeSpec:
+            return False
+
+        try:
+            self.subtypeSpec(self._value)
+
+        except error.PyAsn1Error as inconsistency:
+            return inconsistency
+
+        return False
+
     def clone(self, value=noValue, **kwargs):
         """Create a modified version of |ASN.1| schema or value object.
 

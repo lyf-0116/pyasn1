@@ -46,6 +46,30 @@ MAX_NESTING_DEPTH = 100
 MAX_LENGTH_OCTETS = 8
 
 
+def _verifyDecodedObject(asn1Object):
+    if not isinstance(asn1Object, base.Asn1Item):
+        return
+
+    inconsistency = asn1Object.isInconsistent
+
+    if not inconsistency:
+        return
+
+    if isinstance(inconsistency, BaseException):
+        raise inconsistency
+
+    raise error.PyAsn1Error(
+        'ASN.1 object %s is inconsistent' % asn1Object.__class__.__name__
+    )
+
+
+def _coerceAsn1Spec(asn1Spec):
+    if isinstance(asn1Spec, type) and issubclass(asn1Spec, base.Asn1Item):
+        return asn1Spec()
+
+    return asn1Spec
+
+
 class AbstractPayloadDecoder(object):
     protoComponent = None
 
@@ -921,12 +945,6 @@ class ConstructedPayloadDecoderBase(AbstractConstructedPayloadDecoder):
 
                                 asn1Object.setComponentByPosition(idx, component)
 
-            else:
-                inconsistency = asn1Object.isInconsistent
-                if inconsistency:
-                    raise error.PyAsn1Error(
-                        f"ASN.1 object {asn1Object.__class__.__name__} is inconsistent")
-
         else:
             componentType = asn1Object.componentType
 
@@ -1146,12 +1164,6 @@ class ConstructedPayloadDecoderBase(AbstractConstructedPayloadDecoder):
                                         break
 
                                     asn1Object.setComponentByPosition(idx, component)
-
-                else:
-                    inconsistency = asn1Object.isInconsistent
-                    if inconsistency:
-                        raise error.PyAsn1Error(
-                            f"ASN.1 object {asn1Object.__class__.__name__} is inconsistent")
 
         else:
             componentType = asn1Object.componentType
@@ -1821,6 +1833,7 @@ class SingleItemDecoder(object):
                     debug.scope.push(concreteDecoder is None and '?' or concreteDecoder.protoComponent.__class__.__name__)
 
             if state is stGetValueDecoderByAsn1Spec:
+                asn1Spec = _coerceAsn1Spec(asn1Spec)
 
                 if asn1Spec.__class__ is tagmap.TagMap:
                     try:
@@ -1850,6 +1863,8 @@ class SingleItemDecoder(object):
                     chosenSpec = None
 
                 if chosenSpec is not None:
+                    chosenSpec = _coerceAsn1Spec(chosenSpec)
+
                     try:
                         # ambiguous type or just faster codec lookup
                         concreteDecoder = typeMap[chosenSpec.typeId]
@@ -1962,6 +1977,9 @@ class SingleItemDecoder(object):
         if LOG:
             debug.scope.pop()
             LOG('decoder left scope %s, call completed' % debug.scope)
+
+        if substrateFun is None:
+            _verifyDecodedObject(value)
 
         yield value
 

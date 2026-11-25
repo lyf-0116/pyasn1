@@ -271,13 +271,23 @@ in the constructed base.
 `SimpleAsn1Type` adds the scalar payload and validates it eagerly:
 `SimpleAsn1Type.__init__` runs the value through `prettyIn()` and then
 `self.subtypeSpec(value)`, and that construction-time check makes simple types
-safe to treat as immutable. `ConstructedAsn1Type` adds `componentType` and
-validates nothing at construction, because a container cannot be size-checked
-while it is still being filled, as the note in `ValueSizeConstraint`'s
-docstring (`constraint.py`) spells out. Constructed types are checked only
-when someone reads `.isInconsistent`
-(`SequenceOfAndSetOfBase.isInconsistent`, `SequenceAndSetBase.isInconsistent`),
-which the encoders do on the way out.
+safe to treat as immutable. `SimpleAsn1Type.isInconsistent` exposes that same
+constraint chain through the consistency-hook API. `ConstructedAsn1Type` adds
+`componentType` and validates nothing at construction, because a container
+cannot be size-checked while it is still being filled, as the note in
+`ValueSizeConstraint`'s docstring (`constraint.py`) spells out. Constructed
+types implement `.isInconsistent` in
+`SequenceOfAndSetOfBase.isInconsistent` and
+`SequenceAndSetBase.isInconsistent`; the encoders read those hooks on the way
+out. On input, `SingleItemDecoder.__call__` is the common BER/CER/DER exit and
+its `_verifyDecodedObject` helper reads `.isInconsistent` once for every
+completed item (unless a caller-supplied `substrateFun` owns the result). This
+is the unified decode-time backstop for top-level values, optional components,
+CHOICE values and container-level constraints. Scalars therefore pay for one
+extra constraint read after `clone(value)`; their constructor has usually
+already run the same constraint. `_coerceAsn1Spec` also turns an ASN.1 class
+passed as `asn1Spec` into an instance, avoiding the unbound-`clone()` path that
+previously returned a bare Python value without the post-clone hook.
 
 `clone()`/`subtype()` round-tripping for third-party subclasses with custom
 attributes rests on both properties: a positional parameter added to
@@ -650,7 +660,8 @@ The BER decoder does not depend on the parenthesization bug. Its call sites
 `verifyConstraints=False`, which folds both flags to `False`, where both
 parenthesizations agree. The decoder wants the checker bypassed entirely: a
 decoded component's tag legitimately differs from the schema's under IMPLICIT
-tagging, and constraints are re-verified later via `isInconsistent`.
+tagging, and the common `SingleItemDecoder.__call__` exit re-verifies
+consistency via `_verifyDecodedObject` and `isInconsistent`.
 
 "Fixing" the parentheses changes nothing in this repo's test suite, but it
 starts rejecting components for every external caller that passes
